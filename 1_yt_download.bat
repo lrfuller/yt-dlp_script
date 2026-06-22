@@ -58,11 +58,12 @@ echo Select output format:
 echo 1. mp4 output
 echo 2. mp3 output
 echo 3. mp3 output for YouTube playlists
-set /p choice="Enter your choice (1, 2, or 3): "
+echo 4. any available video format (single file, no merge)
+set /p choice="Enter your choice (1, 2, 3, or 4): "
 
 REM Validate choice
-if not "%choice%"=="1" if not "%choice%"=="2" if not "%choice%"=="3" (
-    echo Invalid choice. Please run the script again and select 1, 2, or 3.
+if not "%choice%"=="1" if not "%choice%"=="2" if not "%choice%"=="3" if not "%choice%"=="4" (
+    echo Invalid choice. Please run the script again and select 1, 2, 3, or 4.
     pause
     exit /b 1
 )
@@ -105,6 +106,14 @@ if "%choice%"=="1" (
 ) else if "%choice%"=="3" (
     echo Downloading playlist as MP3...
     yt-dlp -o "%%(playlist_index)s - %%(title)s.%%(ext)s" -x --audio-format best --no-keep-video "%video_url%" --extractor-args "youtube:player_client=default,web_safari;player_js_version=actual" -P "%USERPROFILE%\Downloads\yt_playlists" --remote-components ejs:github
+    if errorlevel 1 (
+        echo Download failed or was cancelled.
+    ) else (
+        echo Download complete!
+    )
+) else if "%choice%"=="4" (
+    echo Downloading best available single-file video...
+    yt-dlp "%video_url%" -f "b[vcodec!=none]/b" -P "%USERPROFILE%\Downloads\youtubeVids" --cookies-from-browser firefox --extractor-args "youtube:player_client=default,web_safari;player_js_version=actual" --remote-components ejs:github
     if errorlevel 1 (
         echo Download failed or was cancelled.
     ) else (
