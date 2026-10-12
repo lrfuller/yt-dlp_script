@@ -75,12 +75,13 @@ Needed to merge separate video and audio streams into a single MP4 file.
 
 ### Running the Script
 
-1. Double-click `yt_download.bat` or run it from command prompt
+1. Double-click `1_yt_download.bat` or run it from command prompt
 2. The script will check for all required dependencies
 3. Select your desired output format:
-   - **Option 1:** MP4 video (full quality with video and audio)
+   - **Option 1:** MP4 video (best resolution, AV1 preferred, video and audio merged)
    - **Option 2:** MP3 audio only (single video)
-   - **Option 3:** MP3 audio only (entire playlist)
+   - **Option 3:** Audio only (entire playlist, original audio format)
+   - **Option 4:** Any available video format (single pre-merged file, no ffmpeg merge)
 
 4. Paste the YouTube URL when prompted
 5. Wait for the download to complete
@@ -93,7 +94,8 @@ Select output format:
 1. mp4 output
 2. mp3 output
 3. mp3 output for YouTube playlists
-Enter your choice (1, 2, or 3): 1
+4. any available video format (single file, no merge)
+Enter your choice (1, 2, 3, or 4): 1
 
 What youtube video do you want to download? (or type 'exit' to stop): https://www.youtube.com/watch?v=dQw4w9WgXcQ
 Downloading as MP4...
@@ -107,12 +109,21 @@ Exiting...
 ## Output Locations
 
 Downloaded files are saved to:
-- **MP4 and MP3 (single videos):** `./youtubeVids/`
-- **MP3 (playlists):** `./yt_playlists/`
+- **Single videos (options 1, 2, 4):** `%USERPROFILE%\Downloads\youtubeVids\`
+- **Playlists (option 3):** `%USERPROFILE%\Downloads\yt_playlists\`
 
-These folders are created automatically in the same directory as the script.
+These folders are created automatically.
 
 ## Troubleshooting
+
+### Slow Downloads
+- The script already re-fetches the stream URL when speed drops below 1 MB/s (`--throttled-rate 1M`)
+- If a download is still slow, press Ctrl+C and run it again with the same URL; it resumes where it stopped
+- Update yt-dlp: `yt-dlp -U`
+
+### MP4 Won't Play
+- Option 1 downloads AV1 video. VLC plays it as-is
+- Windows Media Player / Films & TV need the free "AV1 Video Extension" from the Microsoft Store
 
 ### "Requested format is not available" Error
 - Ensure ffmpeg is installed and in your PATH
@@ -128,6 +139,7 @@ These folders are created automatically in the same directory as the script.
 - Make sure Firefox is installed and accessible
 - Try clearing Firefox cache and signing in again
 - Update yt-dlp to the latest version
+- Occasional one-off 403s come from YouTube itself; rerun the download
 
 ### MP3 Downloads Work but MP4 Fails
 - This usually means ffmpeg is not installed or not in your PATH
@@ -135,15 +147,19 @@ These folders are created automatically in the same directory as the script.
 
 ### Script Shows "Firefox not detected"
 - Install Firefox from https://www.mozilla.org/firefox/
-- Make sure Firefox is added to your system PATH during installation
-- If installed but not detected, add Firefox installation directory to PATH manually
+- The script looks in the standard install folders (`Program Files`, `Program Files (x86)`, `%LocalAppData%`); a Firefox installed elsewhere is not detected, but cookies still work if yt-dlp can find the profile
 
 ## Technical Details
 
 ### Format Selection
-- **MP4:** Uses `bv+ba/b` (best video + best audio, merge into single file)
+- **MP4:** Uses `bv[protocol=https]+ba/bv+ba/b` with `--merge-output-format mp4`. Prefers regular HTTPS streams (usually AV1) over YouTube's HLS "Premium" streams, which are ~10x larger at the same resolution. Falls back to any stream if no HTTPS one exists
 - **MP3:** Extracts audio and converts to MP3 format
-- **Playlists:** Downloads all videos in order with numbered filenames
+- **Playlists:** Downloads all videos in order with numbered filenames, keeping the original audio format
+- **Any format:** Uses `b[vcodec!=none]/b` (best file that already contains video and audio)
+
+### Download Speed
+- `--throttled-rate 1M`: if YouTube serves a throttled stream URL, yt-dlp re-extracts a fresh one and resumes
+- `-N 8`: downloads 8 fragments at once for fragmented (HLS/DASH) streams
 
 ### Authentication
 The script uses `--cookies-from-browser firefox` to authenticate with YouTube using your Firefox cookies. This allows downloading:
