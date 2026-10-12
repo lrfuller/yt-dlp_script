@@ -89,7 +89,7 @@ if "%video_url%"=="" (
 REM Execute based on user choice
 if "%choice%"=="1" (
     echo Downloading as MP4...
-    yt-dlp "%video_url%" -f "bv+ba/b" -P "%USERPROFILE%\Downloads\youtubeVids" --cookies-from-browser firefox --extractor-args "youtube:player_client=default,web_safari;player_js_version=actual" --remote-components ejs:github
+    yt-dlp "%video_url%" -f "bv[protocol=https]+ba/bv+ba/b" --merge-output-format mp4 -P "%USERPROFILE%\Downloads\youtubeVids" --cookies-from-browser firefox --extractor-args "youtube:player_client=default,web_safari;player_js_version=actual" --remote-components ejs:github --throttled-rate 1M -N 8
     if errorlevel 1 (
         echo Download failed or was cancelled.
     ) else (
@@ -97,7 +97,7 @@ if "%choice%"=="1" (
     )
 ) else if "%choice%"=="2" (
     echo Downloading as MP3...
-    yt-dlp "%video_url%" --extract-audio --audio-format mp3 -P "%USERPROFILE%\Downloads\youtubeVids" --remote-components ejs:github
+    yt-dlp "%video_url%" --extract-audio --audio-format mp3 -P "%USERPROFILE%\Downloads\youtubeVids" --remote-components ejs:github --throttled-rate 1M -N 8
     if errorlevel 1 (
         echo Download failed or was cancelled.
     ) else (
@@ -105,7 +105,7 @@ if "%choice%"=="1" (
     )
 ) else if "%choice%"=="3" (
     echo Downloading playlist as MP3...
-    yt-dlp -o "%%(playlist_index)s - %%(title)s.%%(ext)s" -x --audio-format best --no-keep-video "%video_url%" --extractor-args "youtube:player_client=default,web_safari;player_js_version=actual" -P "%USERPROFILE%\Downloads\yt_playlists" --remote-components ejs:github
+    yt-dlp -o "%%(playlist_index)s - %%(title)s.%%(ext)s" -x --audio-format best --no-keep-video "%video_url%" --extractor-args "youtube:player_client=default,web_safari;player_js_version=actual" -P "%USERPROFILE%\Downloads\yt_playlists" --remote-components ejs:github --throttled-rate 1M -N 8
     if errorlevel 1 (
         echo Download failed or was cancelled.
     ) else (
@@ -113,7 +113,7 @@ if "%choice%"=="1" (
     )
 ) else if "%choice%"=="4" (
     echo Downloading best available single-file video...
-    yt-dlp "%video_url%" -f "b[vcodec!=none]/b" -P "%USERPROFILE%\Downloads\youtubeVids" --cookies-from-browser firefox --extractor-args "youtube:player_client=default,web_safari;player_js_version=actual" --remote-components ejs:github
+    yt-dlp "%video_url%" -f "b[vcodec!=none]/b" -P "%USERPROFILE%\Downloads\youtubeVids" --cookies-from-browser firefox --extractor-args "youtube:player_client=default,web_safari;player_js_version=actual" --remote-components ejs:github --throttled-rate 1M -N 8
     if errorlevel 1 (
         echo Download failed or was cancelled.
     ) else (
