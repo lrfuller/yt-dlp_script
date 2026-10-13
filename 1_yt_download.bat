@@ -57,7 +57,7 @@ echo.
 echo Select output format:
 echo 1. mp4 output
 echo 2. mp3 output
-echo 3. mp3 output for YouTube playlists
+echo 3. audio for YouTube playlists (folder + playlist file, only new songs)
 echo 4. any available video format (single file, no merge)
 set /p choice="Enter your choice (1, 2, 3, or 4): "
 
@@ -104,10 +104,13 @@ if "%choice%"=="1" (
         echo Download complete!
     )
 ) else if "%choice%"=="3" (
-    echo Downloading playlist as MP3...
-    yt-dlp -o "%%(playlist_index)s - %%(title)s.%%(ext)s" -x --audio-format best --no-keep-video "%video_url%" --extractor-args "youtube:player_client=default,web_safari;player_js_version=actual" -P "%USERPROFILE%\Downloads\yt_playlists" --remote-components ejs:github --throttled-rate 1M -N 8
-    if errorlevel 1 (
-        echo Download failed or was cancelled.
+    echo Downloading playlist audio...
+    REM Downloads only songs new since the last pull, then writes the .m3u
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0download_playlist.ps1" -Url "%video_url%"
+    if errorlevel 2 (
+        echo Skipped: another run is already fetching this playlist into the same folder.
+    ) else if errorlevel 1 (
+        echo Finished with errors: some videos were unavailable, or the download was cancelled.
     ) else (
         echo Download complete!
     )

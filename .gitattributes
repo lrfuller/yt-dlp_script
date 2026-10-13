@@ -1,0 +1,7 @@
+tests/ export-ignore
+.ship.conf export-ignore
+.gitignore export-ignore
+.gitattributes export-ignore
+.ship.conf text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
