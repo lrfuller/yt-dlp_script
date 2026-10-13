@@ -105,9 +105,10 @@ if "%choice%"=="1" (
     )
 ) else if "%choice%"=="3" (
     echo Downloading playlist as MP3...
-    yt-dlp -o "%%(playlist_index)s - %%(title)s.%%(ext)s" -x --audio-format best --no-keep-video "%video_url%" --extractor-args "youtube:player_client=default,web_safari;player_js_version=actual" -P "%USERPROFILE%\Downloads\yt_playlists" --remote-components ejs:github --throttled-rate 1M -N 8
+    REM Downloads only songs new since the last pull, then writes the .m3u
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0download_playlist.ps1" -Url "%video_url%"
     if errorlevel 1 (
-        echo Download failed or was cancelled.
+        echo Finished with errors: some videos were unavailable, or the download was cancelled.
     ) else (
         echo Download complete!
     )

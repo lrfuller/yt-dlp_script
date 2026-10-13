@@ -6,6 +6,7 @@ A simple Windows batch script for downloading YouTube videos and playlists in MP
 
 - Download individual videos as MP4 or MP3
 - Download entire playlists as MP3 files
+- Each playlist gets its own folder and an `.m3u` playlist file that keeps working when the folder is copied to a phone
 - Automatic quality selection (best available)
 - Interactive menu-driven interface
 - Built-in dependency checking
@@ -110,9 +111,82 @@ Exiting...
 
 Downloaded files are saved to:
 - **Single videos (options 1, 2, 4):** `%USERPROFILE%\Downloads\youtubeVids\`
-- **Playlists (option 3):** `%USERPROFILE%\Downloads\yt_playlists\`
+- **Playlists (option 3):** `%USERPROFILE%\Downloads\yt_playlists\<playlist name>\`
 
 These folders are created automatically.
+
+### Playlist files
+
+After every option 3 download, `make_playlists.ps1` writes `<playlist name>.m3u`
+into each folder under `yt_playlists`, in playlist order. Entries are bare
+filenames, so the playlist only needs to sit next to its songs:
+
+1. Copy the whole playlist folder to the phone, e.g. into `Music\`.
+2. Open VLC. It finds the playlist on its next library scan. If VLC was already
+   running, close it from recent apps and reopen it.
+
+Nothing needs to be installed on the phone. To rebuild the playlist files
+without downloading (for example after deleting a song), run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File make_playlists.ps1
+```
+
+Playlists named `<folder name>.m3u` inside `yt_playlists` are overwritten
+whenever a folder's contents change.
+
+### Updating a playlist
+
+Run option 3 again with the same playlist link. Only songs added since the
+last pull are downloaded:
+
+- Every downloaded video ID is logged in `yt_playlists\.archive\<playlist id>.txt`.
+- Songs already in the folder but not in the log (older downloads, or a folder
+  copied back from a phone) are matched by title and logged, not downloaded.
+- New songs are numbered after the highest number in the folder, oldest
+  addition first. Existing files are never renamed, so copying the folder to
+  the phone again only adds files. Choose "Skip" for files that already exist,
+  and replace the `.m3u`.
+- Nothing is deleted. A song removed from YouTube keeps its local copy and
+  stays in the playlist. To drop a song, delete its file and rerun
+  `make_playlists.ps1`; the log keeps it from coming back.
+
+Keep the folder under `yt_playlists` after copying it to the phone. If it is
+gone, the next pull downloads only the new songs and the rebuilt `.m3u` lists
+only those.
+
+### Automatic updates (optional)
+
+`%USERPROFILE%\Downloads\yt_sync\playlists.txt` lists the playlists to keep
+updated, one link per line. Option 3 adds every playlist it downloads.
+
+```powershell
+# Register a task that runs update_all.ps1 every 15 minutes while you're logged in
+powershell -NoProfile -ExecutionPolicy Bypass -File install_schedule.ps1
+```
+
+`update_all.ps1` does real work only when `playlists.txt` changed or a day has
+passed. It writes a summary to `yt_sync\last_run.txt` and the full output to
+`yt_playlists\.archive\update.log`. Run it by hand with `-Force` to update now.
+
+To get the songs onto a phone with no cable, use [Syncthing](https://syncthing.net/):
+
+| Folder | PC side | Phone side |
+|--------|---------|------------|
+| `yt_playlists` | Send Only | Receive Only, into `Music/YouTube` |
+| `yt_sync` | Send & Receive | Send & Receive, so `playlists.txt` can be edited on the phone |
+
+Send Only on the PC means nothing done on the phone can change or delete the
+PC copy. `update_all.ps1` only accepts `https://youtube.com/...list=` links, since
+the list can be edited from the phone.
+
+For home-network-only syncing, turn off NAT traversal, global discovery and
+relaying on both devices. Nothing is then reachable from outside your network. To free space on the phone, add an ignore pattern for that playlist
+folder in the phone's Syncthing app (e.g. `/FE OST`), then delete it there.
+
+Each YouTube account needs its own Firefox profile signed into it. Register a
+separate task per person with `-TaskName`, `-List`, `-Root` and
+`-Browser firefox:<profile>`.
 
 ## Troubleshooting
 
@@ -154,7 +228,7 @@ These folders are created automatically.
 ### Format Selection
 - **MP4:** Uses `bv[protocol=https]+ba/bv+ba/b` with `--merge-output-format mp4`. Prefers regular HTTPS streams (usually AV1) over YouTube's HLS "Premium" streams, which are ~10x larger at the same resolution. Falls back to any stream if no HTTPS one exists
 - **MP3:** Extracts audio and converts to MP3 format
-- **Playlists:** Downloads all videos in order with numbered filenames, keeping the original audio format
+- **Playlists:** Downloads all videos in order with numbered filenames into a folder named after the playlist, keeping the original audio format, then writes an `.m3u` playlist into that folder
 - **Any format:** Uses `b[vcodec!=none]/b` (best file that already contains video and audio)
 
 ### Download Speed
