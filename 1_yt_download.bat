@@ -57,7 +57,7 @@ echo.
 echo Select output format:
 echo 1. mp4 output
 echo 2. mp3 output
-echo 3. mp3 output for YouTube playlists
+echo 3. audio for YouTube playlists (folder + playlist file, only new songs)
 echo 4. any available video format (single file, no merge)
 set /p choice="Enter your choice (1, 2, 3, or 4): "
 
@@ -104,7 +104,7 @@ if "%choice%"=="1" (
         echo Download complete!
     )
 ) else if "%choice%"=="3" (
-    echo Downloading playlist as MP3...
+    echo Downloading playlist audio...
     REM Downloads only songs new since the last pull, then writes the .m3u
     powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0download_playlist.ps1" -Url "%video_url%"
     if errorlevel 1 (

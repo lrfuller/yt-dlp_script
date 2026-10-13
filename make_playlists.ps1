@@ -19,7 +19,7 @@ param(
     [string]$Root = (Join-Path $env:USERPROFILE "Downloads\yt_playlists")
 )
 
-$AudioExts = '.opus', '.m4a', '.mp3', '.aac', '.ogg', '.oga', '.flac', '.wav'
+. (Join-Path $PSScriptRoot 'common.ps1')
 
 if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
     Write-Host "No playlist folder at $Root"
@@ -31,7 +31,7 @@ $Utf8 = New-Object System.Text.UTF8Encoding $false
 
 # Numbered files first by number (so "01" and "001" sort together), then by name.
 $ByTrackNumber = @{ Expression = {
-    if ($_.BaseName -match '^\s*(\d+)') { [double]$Matches[1] } else { [double]::MaxValue }
+    if ($_.BaseName -match $TrackNumber) { [double]$Matches[1] } else { [double]::MaxValue }
 } }
 
 foreach ($dir in Get-ChildItem -LiteralPath $Root -Directory) {
@@ -44,8 +44,9 @@ foreach ($dir in Get-ChildItem -LiteralPath $Root -Directory) {
     $lines.Add('#EXTM3U')
     foreach ($t in $tracks) {
         $lines.Add("#EXTINF:-1,$($t.BaseName)")
-        # VLC reads entries as URLs: a raw '#' or '?' cuts the path short and VLC stops
-        # reading the playlist there. Percent-encode those, and '%' itself first.
+        # VLC reads entries as URLs: a raw '#' cuts the path short and VLC stops reading
+        # the playlist there. Percent-encode it, and '%' itself first. '?' can't occur in
+        # Windows filenames, but can on a Linux or macOS copy of the folder.
         $lines.Add($t.Name.Replace('%', '%25').Replace('#', '%23').Replace('?', '%3F'))
     }
     $text = ($lines -join "`n") + "`n"

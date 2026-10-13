@@ -1,4 +1,5 @@
-# Stand-in for yt-dlp in tests. Handles the two calls download_playlist.ps1 makes:
+# Stand-in for yt-dlp in tests. Handles the three calls download_playlist.ps1 makes:
+#   single:   <url with v=> -P <root> -o <template> ...
 #   listing:  <url> --flat-playlist ... --print-to-file <template> <file> ...
 #   download: -a <batch> -P <root> -o <template> --autonumber-start <n> --download-archive <file> ...
 # The playlist comes from $env:FAKE_YTDLP_FIXTURE: "id<TAB>folder<TAB>title" per line.
@@ -23,6 +24,17 @@ if ($args -contains '--flat-playlist') {
     $out = $args[$i + 2]
     $text = ($fixture | ForEach-Object { "$($_.Id)`t$($_.Folder)\$($_.Title)`n" }) -join ''
     [IO.File]::AppendAllText($out, $text, $utf8)
+    exit 0
+}
+
+if (-not ($args -contains '-a')) {
+    # Single video: <url> -P <root> -o 'Singles/%(title)s.%(ext)s'
+    $id = ($args[0] -split 'v=')[1]
+    $entry = $fixture | Where-Object { $_.Id -eq $id }
+    $name = (Arg '-o').Replace('%(title)s', $entry.Title).Replace('%(ext)s', 'm4a')
+    $path = Join-Path (Arg '-P') $name
+    New-Item -ItemType Directory -Force -Path (Split-Path $path) | Out-Null
+    [IO.File]::WriteAllText($path, "audio $id")
     exit 0
 }
 

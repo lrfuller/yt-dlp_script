@@ -142,6 +142,49 @@ Check 'songs around the failures still download' (($got -contains '001 - One.m4a
 Check 'failed songs stay out of the archive, so they are retried' (-not ((Get-Content (Join-Path $root '.archive\PLtest123.txt')) -match 'u1|x1'))
 Remove-Item -Recurse -Force $sb
 
+$sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'none.txt'
+Touch (Join-Path $root 'Clips') @('005 - my video.mp4', 'notes.webm')
+foreach ($f in Get-ChildItem (Join-Path $root 'Clips')) { $f.LastWriteTime = (Get-Date).AddDays(-2) }
+Set-Fixture 'Clips' @('c1|One', 'c2|Breaks')
+$env:FAKE_YTDLP_BREAK = 'c2'
+$r = Download $root $Url $list
+$got = @(Get-ChildItem -LiteralPath (Join-Path $root 'Clips') -File | ForEach-Object Name)
+Check "cleanup keeps .mp4/.webm files that weren't written by this run" (($got -contains '005 - my video.mp4') -and ($got -contains 'notes.webm')) ($got -join '|')
+Check "cleanup still removes this run's partial files" (-not ($got | Where-Object { $_ -match '\.part' })) ($got -join '|')
+Remove-Item -Recurse -Force $sb
+
+$sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'none.txt'
+Set-Fixture 'Old Name' @('r1|First')
+$r = Download $root $Url $list
+Set-Fixture 'New Name' @('r1|First', 'r2|Second')
+$r = Download $root $Url $list
+Check 'renamed playlist keeps its first folder' ((Test-Path -LiteralPath (Join-Path $root 'Old Name\002 - Second.m4a')) -and -not (Test-Path -LiteralPath (Join-Path $root 'New Name')))
+Remove-Item -Recurse -Force $sb
+
+$sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'playlists.txt'
+[IO.File]::WriteAllText($list, "# links`n", $Utf8)
+Set-Fixture 'Busy' @('b1|One')
+# Hold the playlist's lock from another process, like a second window mid-download.
+$holder = Start-Job { $m = New-Object System.Threading.Mutex($false, 'yt-dlp-script-playlist-PLtest123'); [void]$m.WaitOne(); Start-Sleep 60 }
+for ($i = 0; $i -lt 50 -and $holder.State -ne 'Running'; $i++) { Start-Sleep -Milliseconds 200 }
+Start-Sleep 2
+$r = Download $root $Url $list
+Stop-Job $holder; Remove-Job $holder -Force
+Check 'second run of the same playlist is skipped' (($r.Output -match 'Already downloading') -and ($r.Code -eq 0)) $r.Output
+Check 'skipped run calls yt-dlp not at all' (-not (Get-Content $env:FAKE_YTDLP_LOG))
+Check 'skipped run does not touch the list' (-not (Select-String -LiteralPath $list -SimpleMatch 'PLtest123' -Quiet))
+$r = Download $root $Url $list
+Check 'lock is released after a run finishes' (Test-Path -LiteralPath (Join-Path $root 'Busy\001 - One.m4a')) $r.Output
+Remove-Item -Recurse -Force $sb
+
+$sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'playlists.txt'
+[IO.File]::WriteAllText($list, "# links`n", $Utf8)
+Set-Fixture 'NA' @('s1|Lone Song')
+$r = Download $root 'https://www.youtube.com/watch?v=s1' $list
+Check 'single-video link goes to Singles with its own playlist' ((Test-Path -LiteralPath (Join-Path $root 'Singles\Lone Song.m4a')) -and (Test-Path -LiteralPath (Join-Path $root 'Singles\Singles.m3u')))
+Check 'single-video link is not added to the list' (-not (Select-String -LiteralPath $list -SimpleMatch 'watch' -Quiet))
+Remove-Item -Recurse -Force $sb
+
 # --------------------------------------------------------------------------
 Write-Host "update_all.ps1"
 $sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'sync\playlists.txt'
@@ -152,13 +195,34 @@ Set-Fixture 'Auto' @('a1|One')
 $summary = [IO.File]::ReadAllText((Join-Path $sb 'sync\last_run.txt'))
 Check 'listed playlist is downloaded' (Test-Path -LiteralPath (Join-Path $root 'Auto\001 - One.m4a'))
 Check 'non-YouTube and non-https links are skipped' ((([regex]::Matches($summary, 'Skipped, not a YouTube playlist link')).Count -eq 2) -and -not (Select-String -LiteralPath $env:FAKE_YTDLP_LOG -SimpleMatch 'evil.example' -Quiet)) $summary
-Check 'summary written next to the list' ($summary -match "'Auto' is up to date|Downloading 1 new song") $summary
+Check 'summary reports the finished download in past tense' ($summary -match "Downloaded 1 new song\(s\) into 'Auto'\.") $summary
 $calls = (Get-Content $env:FAKE_YTDLP_LOG).Count
 & (Join-Path $Repo 'update_all.ps1') -List $list -Root $root -YtDlp $Fake *>&1 | Out-Null
 Check 'unchanged list within a day: no yt-dlp calls' ((Get-Content $env:FAKE_YTDLP_LOG).Count -eq $calls)
+& (Join-Path $Repo 'update_all.ps1') -List $list -Root $root -YtDlp $Fake -MaxAgeHours 0 *>&1 | Out-Null
+Check 'unchanged list but last run too old: runs' ((Get-Content $env:FAKE_YTDLP_LOG).Count -gt $calls)
+$calls = (Get-Content $env:FAKE_YTDLP_LOG).Count
+& (Join-Path $Repo 'update_all.ps1') -List $list -Root $root -YtDlp $Fake -Force *>&1 | Out-Null
+Check '-Force runs on an unchanged list' ((Get-Content $env:FAKE_YTDLP_LOG).Count -gt $calls)
+$calls = (Get-Content $env:FAKE_YTDLP_LOG).Count
 [IO.File]::AppendAllText($list, "# edited on the phone`n", $Utf8)
 & (Join-Path $Repo 'update_all.ps1') -List $list -Root $root -YtDlp $Fake *>&1 | Out-Null
 Check 'edited list triggers a run' ((Get-Content $env:FAKE_YTDLP_LOG).Count -gt $calls)
+
+[IO.File]::WriteAllText($env:FAKE_YTDLP_FIXTURE, '', $Utf8)   # playlist can't be listed
+& (Join-Path $Repo 'update_all.ps1') -List $list -Root $root -YtDlp $Fake -Force *>&1 | Out-Null
+$summary = [IO.File]::ReadAllText((Join-Path $sb 'sync\last_run.txt'))
+Check 'unlistable playlist is named in the summary' (($summary -match [regex]::Escape("Could not list: $Url")) -and -not ($summary -match 'some songs failed')) $summary
+Remove-Item -Recurse -Force $sb
+
+$sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'sync\playlists.txt'
+New-Item -ItemType Directory -Force -Path (Join-Path $root '.archive') | Out-Null
+[IO.File]::WriteAllText((Join-Path $root '.archive\PLfirst.txt'), "youtube x`n", $Utf8)
+[IO.File]::WriteAllText((Join-Path $root '.archive\PLsecond.txt'), "youtube y`n", $Utf8)
+Set-Fixture 'Seeded' @('x|X')
+& (Join-Path $Repo 'update_all.ps1') -List $list -Root $root -YtDlp $Fake *>&1 | Out-Null
+$seeded = @([IO.File]::ReadAllLines($list) | Where-Object { $_ -match 'list=' })
+Check 'missing list starts with every playlist already downloaded' (($seeded.Count -eq 2) -and ($seeded -contains 'https://www.youtube.com/playlist?list=PLfirst')) ($seeded -join ' | ')
 Remove-Item -Recurse -Force $sb
 
 Write-Host ""

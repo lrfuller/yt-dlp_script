@@ -7,7 +7,8 @@ Updates every playlist in playlists.txt. Meant to run from Task Scheduler
 -List holds one YouTube playlist link per line; blank lines and lines starting
 with # are ignored. Each link goes through download_playlist.ps1, so only new
 songs download. Deleting a line stops updates for that playlist; nothing is
-ever deleted from -Root.
+ever deleted from -Root. If the list doesn't exist yet, it is created with
+every playlist already downloaded into -Root.
 
 Scheduled every 15 minutes, it does real work only when the list changed since
 the last run, or the last run is older than -MaxAgeHours. -Force always runs.
@@ -35,8 +36,12 @@ $env:PYTHONIOENCODING = 'utf-8'
 try { [Console]::OutputEncoding = $Utf8 } catch { }
 
 # One run at a time, even if started by hand while the schedule fires.
-$mutex = New-Object System.Threading.Mutex($false, 'yt-dlp-script-update-all')
-if (-not $mutex.WaitOne(0)) { Write-Host "Another update is already running."; exit 0 }
+# Keyed by the music folder, so one person's task doesn't block another's.
+$rootKey = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($Utf8.GetBytes($Root.ToLowerInvariant()))).Replace('-', '').Substring(0, 16)
+$mutex = New-Object System.Threading.Mutex($false, "yt-dlp-script-update-all-$rootKey")
+# Abandoned = a run that was killed; the lock is ours now.
+try { $locked = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $locked = $true }
+if (-not $locked) { Write-Host "Another update is already running."; exit 0 }
 
 try {
     $stateDir = Join-Path $Root '.archive'
@@ -46,7 +51,11 @@ try {
     $summary = Join-Path (Split-Path $List) 'last_run.txt'
 
     if (-not (Test-Path -LiteralPath $List)) {
-        [IO.File]::WriteAllText($List, "# One YouTube playlist link per line. Delete a line to stop updating it.`n", $Utf8)
+        # Start the list with every playlist already downloaded (each has a log in .archive).
+        $ids = @(Get-ChildItem -LiteralPath $stateDir -Filter *.txt |
+            Where-Object { $_.BaseName -ne 'update_state' } | ForEach-Object { $_.BaseName })
+        $links = ($ids | ForEach-Object { "https://www.youtube.com/playlist?list=$_`n" }) -join ''
+        [IO.File]::WriteAllText($List, "# One YouTube playlist link per line. Delete a line to stop updating it.`n$links", $Utf8)
     }
 
     $hash = (Get-FileHash -LiteralPath $List -Algorithm SHA256).Hash
@@ -74,8 +83,10 @@ try {
         $code = $LASTEXITCODE
         [IO.File]::AppendAllText($log, (($lines -join "`n") + "`n"), $Utf8)
 
-        $status = $lines | Where-Object { $_ -match "^(Downloading \d+ new song|'.+' is up to date|Could not list)" } | Select-Object -Last 1
+        $status = $lines | Where-Object { $_ -match "^(Downloading \d+ new song|'.+' is up to date|Could not list|Already downloading)" } | Select-Object -Last 1
         if (-not $status) { $status = "No result for $url" }
+        if ($status.StartsWith('Could not list')) { $report.Add("Could not list: $url"); continue }
+        $status = $status -replace '^Downloading (\d+ new song\(s\) into .+?), starting at number \d+\.$', 'Downloaded $1.'
         if ($code -ne 0) { $status += "  (some songs failed; see update.log on the PC)" }
         $report.Add($status)
     }

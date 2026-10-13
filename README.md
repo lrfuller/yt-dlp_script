@@ -94,7 +94,7 @@ Needed to merge separate video and audio streams into a single MP4 file.
 Select output format:
 1. mp4 output
 2. mp3 output
-3. mp3 output for YouTube playlists
+3. audio for YouTube playlists (folder + playlist file, only new songs)
 4. any available video format (single file, no merge)
 Enter your choice (1, 2, 3, or 4): 1
 
@@ -112,6 +112,7 @@ Exiting...
 Downloaded files are saved to:
 - **Single videos (options 1, 2, 4):** `%USERPROFILE%\Downloads\youtubeVids\`
 - **Playlists (option 3):** `%USERPROFILE%\Downloads\yt_playlists\<playlist name>\`
+- **A single-video link in option 3:** `%USERPROFILE%\Downloads\yt_playlists\Singles\`
 
 These folders are created automatically.
 
@@ -141,15 +142,21 @@ Run option 3 again with the same playlist link. Only songs added since the
 last pull are downloaded:
 
 - Every downloaded video ID is logged in `yt_playlists\.archive\<playlist id>.txt`.
-- Songs already in the folder but not in the log (older downloads, or a folder
-  copied back from a phone) are matched by title and logged, not downloaded.
+- Songs already in the playlist folder but not in the log (for example a
+  folder copied back from a phone) are matched by title and logged, not
+  downloaded. Older option 3 downloads saved straight into `yt_playlists\`
+  must first be moved into a folder named after the playlist.
 - New songs are numbered after the highest number in the folder, oldest
   addition first. Existing files are never renamed, so copying the folder to
   the phone again only adds files. Choose "Skip" for files that already exist,
   and replace the `.m3u`.
-- Nothing is deleted. A song removed from YouTube keeps its local copy and
+- The folder keeps the name from the first pull, even if the playlist is
+  renamed on YouTube.
+- No song is deleted. A song removed from YouTube keeps its local copy and
   stays in the playlist. To drop a song, delete its file and rerun
-  `make_playlists.ps1`; the log keeps it from coming back.
+  `make_playlists.ps1`; the log keeps it from coming back. The only files
+  removed are partial downloads left by a failed run.
+- Only one download per playlist runs at a time; a second one is skipped.
 
 Keep the folder under `yt_playlists` after copying it to the phone. If it is
 gone, the next pull downloads only the new songs and the rebuilt `.m3u` lists
@@ -158,7 +165,9 @@ only those.
 ### Automatic updates (optional)
 
 `%USERPROFILE%\Downloads\yt_sync\playlists.txt` lists the playlists to keep
-updated, one link per line. Option 3 adds every playlist it downloads.
+updated, one link per line. The first `update_all.ps1` run creates it with
+every playlist already downloaded, and option 3 adds each playlist it
+downloads after that.
 
 ```powershell
 # Register a task that runs update_all.ps1 every 15 minutes while you're logged in
@@ -178,11 +187,16 @@ To get the songs onto a phone with no cable, use [Syncthing](https://syncthing.n
 
 Send Only on the PC means nothing done on the phone can change or delete the
 PC copy. `update_all.ps1` only accepts `https://youtube.com/...list=` links, since
-the list can be edited from the phone.
+the list can be edited from the phone. On the PC, add `.archive` to the
+`yt_playlists` folder's ignore patterns; the logs there aren't needed on the
+phone.
 
 For home-network-only syncing, turn off NAT traversal, global discovery and
-relaying on both devices. Nothing is then reachable from outside your network. To free space on the phone, add an ignore pattern for that playlist
-folder in the phone's Syncthing app (e.g. `/FE OST`), then delete it there.
+relaying on both devices. Nothing is then reachable from outside your network.
+
+To free space on the phone, add an ignore pattern for that playlist folder in
+the phone's Syncthing app (e.g. `/My Playlist`), then delete the folder there.
+The PC keeps its copy.
 
 Each YouTube account needs its own Firefox profile signed into it. Register a
 separate task per person with `-TaskName`, `-List`, `-Root` and
