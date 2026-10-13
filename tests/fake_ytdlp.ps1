@@ -2,7 +2,9 @@
 #   single:   <url with v=> -P <root> -o <template> ...
 #   listing:  <url> --flat-playlist ... --print-to-file <template> <file> ...
 #   download: -a <batch> -P <root> -o <template> --autonumber-start <n> --download-archive <file> ...
-# The playlist comes from $env:FAKE_YTDLP_FIXTURE: "id<TAB>folder<TAB>title" per line.
+# The playlist comes from $env:FAKE_YTDLP_FIXTURE: "id<TAB>folder<TAB>title[<TAB>list id]" per
+# line; an entry with a list id is only listed for URLs with that list=.
+# A listing of a list id in $env:FAKE_YTDLP_THROW throws, like an unexpected crash.
 # IDs in $env:FAKE_YTDLP_UNAVAILABLE fail like a removed video (no number used).
 # IDs in $env:FAKE_YTDLP_BREAK fail mid-download: a number is used and a .part file is left.
 # Every call is appended to $env:FAKE_YTDLP_LOG.
@@ -13,16 +15,19 @@ $utf8 = New-Object System.Text.UTF8Encoding $false
 [IO.File]::AppendAllText($env:FAKE_YTDLP_LOG, (($args -join ' ') + "`n"), $utf8)
 
 $fixture = @(foreach ($l in [IO.File]::ReadAllLines($env:FAKE_YTDLP_FIXTURE, $utf8)) {
-    $id, $folder, $title = $l -split "`t"
-    [pscustomobject]@{ Id = $id; Folder = $folder; Title = $title }
+    $id, $folder, $title, $list = $l -split "`t"
+    [pscustomobject]@{ Id = $id; Folder = $folder; Title = $title; List = $list }
 })
 $unavailable = @("$env:FAKE_YTDLP_UNAVAILABLE" -split ',' | Where-Object { $_ })
 $broken = @("$env:FAKE_YTDLP_BREAK" -split ',' | Where-Object { $_ })
 
 if ($args -contains '--flat-playlist') {
+    $listId = if ($args[0] -match '[?&]list=([\w-]+)') { $Matches[1] } else { '' }
+    if ($listId -and ("$env:FAKE_YTDLP_THROW" -split ',') -contains $listId) { throw "fake crash listing $listId" }
     $i = [array]::IndexOf($args, '--print-to-file')
     $out = $args[$i + 2]
-    $text = ($fixture | ForEach-Object { "$($_.Id)`t$($_.Folder)\$($_.Title)`n" }) -join ''
+    $text = ($fixture | Where-Object { -not $_.List -or $_.List -eq $listId } |
+        ForEach-Object { "$($_.Id)`t$($_.Folder)\$($_.Title)`n" }) -join ''
     [IO.File]::AppendAllText($out, $text, $utf8)
     exit 0
 }

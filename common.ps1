@@ -1,4 +1,4 @@
-# Dot-sourced by download_playlist.ps1, make_playlists.ps1 and update_all.ps1, so
+# Dot-sourced by download_playlist.ps1, make_playlists.ps1, update_all.ps1 and the tests, so
 # they agree on what counts as a song, how its track number is read, and how a
 # music folder is keyed for locks.
 

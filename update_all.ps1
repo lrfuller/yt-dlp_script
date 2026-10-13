@@ -79,14 +79,22 @@ try {
             $report.Add("Skipped, not a YouTube playlist link: $url")
             continue
         }
-        $lines = @(& (Join-Path $PSScriptRoot 'download_playlist.ps1') -Url $url -Root $Root -Browser $Browser -List $List -YtDlp $YtDlp *>&1 |
-            ForEach-Object { "$_" })
-        $code = $LASTEXITCODE
+        try {
+            $lines = @(& (Join-Path $PSScriptRoot 'download_playlist.ps1') -Url $url -Root $Root -Browser $Browser -List $List -YtDlp $YtDlp *>&1 |
+                ForEach-Object { "$_" })
+            $code = $LASTEXITCODE
+        } catch {
+            # One broken playlist must not stop the rest of the list or the summary.
+            [IO.File]::AppendAllText($log, "ERROR for ${url}: $_`n", $Utf8)
+            $report.Add("Failed: $url  (see update.log on the PC)")
+            continue
+        }
         [IO.File]::AppendAllText($log, (($lines -join "`n") + "`n"), $Utf8)
 
         $status = $lines | Where-Object { $_ -match "^(Downloaded \d+ of \d+ new song|'.+' is up to date|Could not list|Already being downloaded)" } | Select-Object -Last 1
         if (-not $status) { $status = "No result for $url" }
         if ($status.StartsWith('Could not list')) { $report.Add("Could not list: $url"); continue }
+        if ($status.StartsWith('Already being downloaded')) { $report.Add("Skipped, a manual download is running: $url"); continue }
         # 2 = skipped because a manual pull of the same playlist is running; not a failure.
         if ($code -ne 0 -and $code -ne 2) { $status += "  (some songs failed; see update.log on the PC)" }
         $report.Add($status)

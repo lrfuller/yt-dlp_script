@@ -25,6 +25,7 @@ function New-Sandbox {
     $env:FAKE_YTDLP_UNAVAILABLE = ''
     $env:FAKE_YTDLP_BREAK = ''
     $env:FAKE_YTDLP_LISTFILE = ''
+    $env:FAKE_YTDLP_THROW = ''
     [IO.File]::WriteAllText($env:FAKE_YTDLP_LOG, '', $Utf8)
     $dir
 }
@@ -206,6 +207,16 @@ Check 'single-video link goes to Singles with its own playlist' ((Test-Path -Lit
 Check 'single-video link is not added to the list' (-not (Select-String -LiteralPath $list -SimpleMatch 'watch' -Quiet))
 Remove-Item -Recurse -Force $sb
 
+$sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'playlists.txt'
+[IO.File]::WriteAllText($list, "# links`n", $Utf8)
+Set-Fixture 'Locked Out' @('m1|Members Only', 'm2|Also Blocked')
+$env:FAKE_YTDLP_UNAVAILABLE = 'm1,m2'   # first pull, nothing succeeds, so yt-dlp never creates the archive
+$r = Download $root $Url $list
+Check 'first pull where every song fails: exit code 1, not a crash' ($r.Code -eq 1) "code=$($r.Code) $($r.Output)"
+Check 'first pull where every song fails: reports 0 of 2' ($r.Output -match "Downloaded 0 of 2 new song\(s\) into 'Locked Out'") $r.Output
+Check 'first pull where every song fails: link still added to the list' (Select-String -LiteralPath $list -SimpleMatch 'list=PLtest123' -Quiet)
+Remove-Item -Recurse -Force $sb
+
 # --------------------------------------------------------------------------
 Write-Host "update_all.ps1"
 $sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'sync\playlists.txt'
@@ -244,6 +255,23 @@ Set-Fixture 'Seeded' @('x|X')
 & (Join-Path $Repo 'update_all.ps1') -List $list -Root $root -YtDlp $Fake *>&1 | Out-Null
 $seeded = @([IO.File]::ReadAllLines($list) | Where-Object { $_ -match 'list=' })
 Check 'missing list starts with every playlist already downloaded' (($seeded.Count -eq 2) -and ($seeded -contains 'https://www.youtube.com/playlist?list=PLfirst')) ($seeded -join ' | ')
+Remove-Item -Recurse -Force $sb
+
+$sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'sync\playlists.txt'
+New-Item -ItemType Directory -Path (Split-Path $list) | Out-Null
+$bad = 'https://www.youtube.com/playlist?list=PLbad'; $crash = 'https://www.youtube.com/playlist?list=PLcrash'; $good = 'https://www.youtube.com/playlist?list=PLgood'
+[IO.File]::WriteAllText($list, "$bad`n$crash`n$good`n", $Utf8)
+[IO.File]::WriteAllLines($env:FAKE_YTDLP_FIXTURE, [string[]]@("x1`tBad`tGone`tPLbad", "c1`tCrash`tBoom`tPLcrash", "g1`tGood`tFine`tPLgood"), $Utf8)
+$env:FAKE_YTDLP_UNAVAILABLE = 'x1'; $env:FAKE_YTDLP_THROW = 'PLcrash'
+$crashed = $null
+try { & (Join-Path $Repo 'update_all.ps1') -List $list -Root $root -YtDlp $Fake *>&1 | Out-Null } catch { $crashed = "$_" }
+Check 'update_all itself does not crash on a failing playlist' (-not $crashed) $crashed
+$summaryPath = Join-Path $sb 'sync\last_run.txt'
+$summary = if (Test-Path $summaryPath) { [IO.File]::ReadAllText($summaryPath) } else { '(missing)' }
+Check 'playlists after a failing one still update' (Test-Path -LiteralPath (Join-Path $root 'Good\001 - Fine.m4a')) $summary
+Check 'summary lists the all-failed playlist' ($summary -match "Downloaded 0 of 1 new song\(s\) into 'Bad'\..*some songs failed") $summary
+Check 'a playlist that crashes is reported and the run goes on' (($summary -match [regex]::Escape("Failed: $crash")) -and ($summary -match "into 'Good'")) $summary
+Check 'state is saved, so the next tick does not redo the run' (Test-Path (Join-Path $root '.archive\update_state.txt'))
 Remove-Item -Recurse -Force $sb
 
 Write-Host ""

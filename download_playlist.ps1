@@ -59,6 +59,11 @@ $Download = @('-x', '--audio-format', 'best', '--no-keep-video', '--throttled-ra
 $Utf8 = New-Object System.Text.UTF8Encoding $false
 $MakePlaylists = Join-Path $PSScriptRoot 'make_playlists.ps1'
 
+# yt-dlp only creates the archive on its first successful download.
+function Get-LineCount([string]$Path) {
+    if (Test-Path -LiteralPath $Path) { @([IO.File]::ReadAllLines($Path)).Count } else { 0 }
+}
+
 New-Item -ItemType Directory -Force -Path $Root | Out-Null
 
 # A single video (no list=): no numbering, no log.
@@ -150,7 +155,7 @@ try {
         Write-Host "Downloading $($new.Count) new song(s) into '$folder', starting at number $next."
         $batch = [IO.Path]::GetTempFileName()
         $started = [DateTime]::UtcNow
-        $before = if (Test-Path -LiteralPath $archive) { @([IO.File]::ReadAllLines($archive)).Count } else { 0 }
+        $before = Get-LineCount $archive
         try {
             [IO.File]::WriteAllLines($batch, [string[]]($new | ForEach-Object { "https://www.youtube.com/watch?v=$($_.Id)" }))
             $template = $folder.Replace('%', '%%') + "/%(autonumber)0${width}d - %(title)s.%(ext)s"
@@ -161,13 +166,14 @@ try {
             Remove-Item -LiteralPath $batch -ErrorAction SilentlyContinue
             # Partial files of failed or killed runs can't be resumed: a retry gets a new
             # number, so a new name. yt-dlp's own temp files go whatever their age (the
-            # lock means no other run owns them); .mp4/.webm only if this run wrote them.
+            # lock rules out another run of this playlist into this folder); .mp4/.webm
+            # only if this run wrote them.
             Get-ChildItem -LiteralPath $dir -File |
                 Where-Object { $_.Name -match '\.(part|ytdl)$|\.part-Frag\d+' -or
                     ($_.Name -match '\.(mp4|webm)$' -and $_.LastWriteTimeUtc -ge $started) } |
                 Remove-Item -Force -ErrorAction SilentlyContinue
         }
-        $got = @([IO.File]::ReadAllLines($archive)).Count - $before
+        $got = (Get-LineCount $archive) - $before
         Write-Host "Downloaded $got of $($new.Count) new song(s) into '$folder'."
     }
 
