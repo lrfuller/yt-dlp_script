@@ -107,7 +107,9 @@ if "%choice%"=="1" (
     echo Downloading playlist audio...
     REM Downloads only songs new since the last pull, then writes the .m3u
     powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0download_playlist.ps1" -Url "%video_url%"
-    if errorlevel 1 (
+    if errorlevel 2 (
+        echo Skipped: this playlist is already being downloaded. Try again when that finishes.
+    ) else if errorlevel 1 (
         echo Finished with errors: some videos were unavailable, or the download was cancelled.
     ) else (
         echo Download complete!

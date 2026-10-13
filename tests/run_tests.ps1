@@ -7,6 +7,7 @@ Exits 0 when every check passes.
 $ErrorActionPreference = 'Stop'
 $Repo = Split-Path $PSScriptRoot
 $Fake = Join-Path $PSScriptRoot 'fake_ytdlp.ps1'
+. (Join-Path $Repo 'common.ps1')   # Get-RootKey, for the lock names
 $Utf8 = New-Object System.Text.UTF8Encoding $false
 $script:Failed = 0
 $script:Passed = 0
@@ -23,6 +24,7 @@ function New-Sandbox {
     $env:FAKE_YTDLP_FIXTURE = Join-Path $dir 'fixture.txt'
     $env:FAKE_YTDLP_UNAVAILABLE = ''
     $env:FAKE_YTDLP_BREAK = ''
+    $env:FAKE_YTDLP_LISTFILE = ''
     [IO.File]::WriteAllText($env:FAKE_YTDLP_LOG, '', $Utf8)
     $dir
 }
@@ -143,14 +145,16 @@ Check 'failed songs stay out of the archive, so they are retried' (-not ((Get-Co
 Remove-Item -Recurse -Force $sb
 
 $sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'none.txt'
-Touch (Join-Path $root 'Clips') @('005 - my video.mp4', 'notes.webm')
+Touch (Join-Path $root 'Clips') @('005 - my video.mp4', 'notes.webm', '009 - killed run.m4a.part', '009 - killed run.m4a.ytdl')
 foreach ($f in Get-ChildItem (Join-Path $root 'Clips')) { $f.LastWriteTime = (Get-Date).AddDays(-2) }
 Set-Fixture 'Clips' @('c1|One', 'c2|Breaks')
 $env:FAKE_YTDLP_BREAK = 'c2'
 $r = Download $root $Url $list
 $got = @(Get-ChildItem -LiteralPath (Join-Path $root 'Clips') -File | ForEach-Object Name)
 Check "cleanup keeps .mp4/.webm files that weren't written by this run" (($got -contains '005 - my video.mp4') -and ($got -contains 'notes.webm')) ($got -join '|')
-Check "cleanup still removes this run's partial files" (-not ($got | Where-Object { $_ -match '\.part' })) ($got -join '|')
+Check "cleanup removes this run's partial files" (-not ($got | Where-Object { $_ -match '\.part' -and $_ -match 'Breaks' })) ($got -join '|')
+Check "cleanup removes partial files left by an earlier killed run" (-not ($got | Where-Object { $_ -match 'killed run' })) ($got -join '|')
+Check 'summary counts only songs that downloaded' ($r.Output -match "Downloaded 1 of 2 new song\(s\) into 'Clips'") $r.Output
 Remove-Item -Recurse -Force $sb
 
 $sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'none.txt'
@@ -163,18 +167,35 @@ Remove-Item -Recurse -Force $sb
 
 $sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'playlists.txt'
 [IO.File]::WriteAllText($list, "# links`n", $Utf8)
+$env:FAKE_YTDLP_LISTFILE = $list
 Set-Fixture 'Busy' @('b1|One')
-# Hold the playlist's lock from another process, like a second window mid-download.
-$holder = Start-Job { $m = New-Object System.Threading.Mutex($false, 'yt-dlp-script-playlist-PLtest123'); [void]$m.WaitOne(); Start-Sleep 60 }
-for ($i = 0; $i -lt 50 -and $holder.State -ne 'Running'; $i++) { Start-Sleep -Milliseconds 200 }
-Start-Sleep 2
+$lockName = "yt-dlp-script-playlist-$(Get-RootKey $root)-PLtest123"
+$ready = Join-Path $sb 'holder.ready'
+# Hold this playlist's lock from another process, like the scheduled update mid-download.
+$holder = Start-Job -ArgumentList $lockName, $ready {
+    param($name, $ready)
+    $m = New-Object System.Threading.Mutex($false, $name); [void]$m.WaitOne()
+    [IO.File]::WriteAllText($ready, 'held'); Start-Sleep 60
+}
+for ($i = 0; $i -lt 100 -and -not (Test-Path $ready); $i++) { Start-Sleep -Milliseconds 200 }
 $r = Download $root $Url $list
-Stop-Job $holder; Remove-Job $holder -Force
-Check 'second run of the same playlist is skipped' (($r.Output -match 'Already downloading') -and ($r.Code -eq 0)) $r.Output
+Check 'second run of the same playlist is skipped with exit code 2' (($r.Output -match 'Already being downloaded') -and ($r.Code -eq 2)) "code=$($r.Code) $($r.Output)"
 Check 'skipped run calls yt-dlp not at all' (-not (Get-Content $env:FAKE_YTDLP_LOG))
 Check 'skipped run does not touch the list' (-not (Select-String -LiteralPath $list -SimpleMatch 'PLtest123' -Quiet))
+$other = Join-Path $sb 'someone-else'
+$r = Download $other $Url (Join-Path $sb 'none.txt')
+Check "the lock doesn't block the same playlist in another music folder" (Test-Path -LiteralPath (Join-Path $other 'Busy\001 - One.m4a')) $r.Output
+Stop-Job $holder; Remove-Job $holder -Force
+[IO.File]::WriteAllText($env:FAKE_YTDLP_LOG, '', $Utf8)
 $r = Download $root $Url $list
-Check 'lock is released after a run finishes' (Test-Path -LiteralPath (Join-Path $root 'Busy\001 - One.m4a')) $r.Output
+Check 'lock is taken over once the other run ends' (Test-Path -LiteralPath (Join-Path $root 'Busy\001 - One.m4a')) $r.Output
+Check 'list gets the link only after the download' ((Get-Content $env:FAKE_YTDLP_LOG) -contains 'list-had-link-during-download: False') ((Get-Content $env:FAKE_YTDLP_LOG) -join ' | ')
+Check 'list has the link once the download is done' (Select-String -LiteralPath $list -SimpleMatch 'list=PLtest123' -Quiet)
+# Release: another process must be able to take the lock right after a finished run.
+$probe = Start-Job -ArgumentList $lockName { param($name); $m = New-Object System.Threading.Mutex($false, $name); try { $m.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { 'abandoned' } }
+$free = Receive-Job $probe -Wait; Remove-Job $probe -Force
+Check 'a finished run releases its lock' ($free -eq $true) "probe got: $free"
+$env:FAKE_YTDLP_LISTFILE = ''
 Remove-Item -Recurse -Force $sb
 
 $sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'playlists.txt'
@@ -195,7 +216,7 @@ Set-Fixture 'Auto' @('a1|One')
 $summary = [IO.File]::ReadAllText((Join-Path $sb 'sync\last_run.txt'))
 Check 'listed playlist is downloaded' (Test-Path -LiteralPath (Join-Path $root 'Auto\001 - One.m4a'))
 Check 'non-YouTube and non-https links are skipped' ((([regex]::Matches($summary, 'Skipped, not a YouTube playlist link')).Count -eq 2) -and -not (Select-String -LiteralPath $env:FAKE_YTDLP_LOG -SimpleMatch 'evil.example' -Quiet)) $summary
-Check 'summary reports the finished download in past tense' ($summary -match "Downloaded 1 new song\(s\) into 'Auto'\.") $summary
+Check 'summary reports what was downloaded' ($summary -match "Downloaded 1 of 1 new song\(s\) into 'Auto'\.") $summary
 $calls = (Get-Content $env:FAKE_YTDLP_LOG).Count
 & (Join-Path $Repo 'update_all.ps1') -List $list -Root $root -YtDlp $Fake *>&1 | Out-Null
 Check 'unchanged list within a day: no yt-dlp calls' ((Get-Content $env:FAKE_YTDLP_LOG).Count -eq $calls)

@@ -43,6 +43,11 @@ $n = [int](Arg '--autonumber-start'); $archive = Arg '--download-archive'
 $code = 0
 $urls = [IO.File]::ReadAllLines($batch)
 [IO.File]::AppendAllText($env:FAKE_YTDLP_LOG, "batch: $(($urls | ForEach-Object { ($_ -split 'v=')[1] }) -join ',')`n", $utf8)
+if ($env:FAKE_YTDLP_LISTFILE -and (Test-Path -LiteralPath $env:FAKE_YTDLP_LISTFILE)) {
+    # Lets tests check the playlist link isn't added to the list before the download.
+    $inList = [bool](Select-String -LiteralPath $env:FAKE_YTDLP_LISTFILE -SimpleMatch 'list=' -Quiet)
+    [IO.File]::AppendAllText($env:FAKE_YTDLP_LOG, "list-had-link-during-download: $inList`n", $utf8)
+}
 foreach ($url in $urls) {
     $id = ($url -split 'v=')[1]
     $entry = $fixture | Where-Object { $_.Id -eq $id }

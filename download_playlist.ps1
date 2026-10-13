@@ -20,16 +20,17 @@ Every downloaded video ID is logged in <Root>\.archive\<playlist id>.txt
    files are never renamed and the end of the playlist is always the newest.
 
 No song is ever deleted. A song removed from YouTube keeps its local copy and
-stays in the .m3u. The only files removed are partial downloads this run
-left behind.
+stays in the .m3u. The only files removed are yt-dlp's partial-download files
+(.part, .ytdl) and any .mp4/.webm written during this run.
 
-Only one run per playlist at a time; a second one exits with a message.
+Only one run per playlist and folder at a time; a second one is skipped.
+
+Exit codes: 0 done, 1 some videos failed or the playlist couldn't be listed,
+2 skipped because another run of this playlist is in progress.
 
 If the -List file exists, the playlist's link is added to it after the
 download, so playlists downloaded by hand are kept up to date by
 update_all.ps1 too.
-
-Exits with yt-dlp's exit code, which is non-zero when any video failed.
 
 .PARAMETER Browser
 Where yt-dlp reads YouTube cookies from: "firefox", or "firefox:<profile>"
@@ -63,7 +64,7 @@ New-Item -ItemType Directory -Force -Path $Root | Out-Null
 # A single video (no list=): no numbering, no log.
 if ($Url -notmatch '[?&]list=([\w-]+)') {
     & $YtDlp $Url -P $Root -o 'Singles/%(title)s.%(ext)s' @Common @Download
-    $code = $LASTEXITCODE
+    $code = [int]($LASTEXITCODE -ne 0)
     & $MakePlaylists -Root $Root
     exit $code
 }
@@ -71,12 +72,12 @@ $listId = $Matches[1]
 
 # Two runs of one playlist would download in-flight songs twice and delete each
 # other's partial files, e.g. a manual pull while the scheduled update fires.
-$lock = New-Object System.Threading.Mutex($false, "yt-dlp-script-playlist-$listId")
+$lock = New-Object System.Threading.Mutex($false, "yt-dlp-script-playlist-$(Get-RootKey $Root)-$listId")
 # Abandoned = a run whose window was closed mid-download; the lock is ours now.
 try { $locked = $lock.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $locked = $true }
 if (-not $locked) {
-    Write-Host "Already downloading $listId in another window. Skipped."
-    exit 0
+    Write-Host "Already being downloaded (scheduled update or another window): $Url. Skipped."
+    exit 2
 }
 
 try {
@@ -148,20 +149,26 @@ try {
 
         Write-Host "Downloading $($new.Count) new song(s) into '$folder', starting at number $next."
         $batch = [IO.Path]::GetTempFileName()
-        $started = Get-Date
+        $started = [DateTime]::UtcNow
+        $before = if (Test-Path -LiteralPath $archive) { @([IO.File]::ReadAllLines($archive)).Count } else { 0 }
         try {
             [IO.File]::WriteAllLines($batch, [string[]]($new | ForEach-Object { "https://www.youtube.com/watch?v=$($_.Id)" }))
             $template = $folder.Replace('%', '%%') + "/%(autonumber)0${width}d - %(title)s.%(ext)s"
             & $YtDlp -a $batch -P $Root -o $template --autonumber-start $next --download-archive $archive @Common @Download
-            $code = $LASTEXITCODE
+            # Any yt-dlp failure is 1; 2 is reserved for "skipped".
+            $code = [int]($LASTEXITCODE -ne 0)
         } finally {
             Remove-Item -LiteralPath $batch -ErrorAction SilentlyContinue
-            # Partial files from this run's failures can't be resumed: a retry gets a new
-            # number, so a new name. Only touch files written during this run.
+            # Partial files of failed or killed runs can't be resumed: a retry gets a new
+            # number, so a new name. yt-dlp's own temp files go whatever their age (the
+            # lock means no other run owns them); .mp4/.webm only if this run wrote them.
             Get-ChildItem -LiteralPath $dir -File |
-                Where-Object { $_.LastWriteTime -ge $started -and $_.Name -match '\.(part|ytdl|mp4|webm)$|\.part-Frag\d+' } |
+                Where-Object { $_.Name -match '\.(part|ytdl)$|\.part-Frag\d+' -or
+                    ($_.Name -match '\.(mp4|webm)$' -and $_.LastWriteTimeUtc -ge $started) } |
                 Remove-Item -Force -ErrorAction SilentlyContinue
         }
+        $got = @([IO.File]::ReadAllLines($archive)).Count - $before
+        Write-Host "Downloaded $got of $($new.Count) new song(s) into '$folder'."
     }
 
     # After the download, so a manual pull doesn't wake the scheduler mid-download.
