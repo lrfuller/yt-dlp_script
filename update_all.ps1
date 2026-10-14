@@ -91,12 +91,12 @@ try {
         }
         [IO.File]::AppendAllText($log, (($lines -join "`n") + "`n"), $Utf8)
 
-        $status = $lines | Where-Object { $_ -match "^(Downloaded \d+ of \d+ new song|'.+' is up to date|Could not list|Already being downloaded)" } | Select-Object -Last 1
+        $status = $lines | Where-Object { $_ -cmatch "^(Downloaded \d+ of \d+ new song|'.+' is up to date|Could not list|Already being downloaded|Error: )" } | Select-Object -Last 1
         if (-not $status) { $status = "No result for $url" }
         if ($status.StartsWith('Could not list')) { $report.Add("Could not list: $url"); continue }
         if ($status.StartsWith('Already being downloaded')) { $report.Add("Skipped, a manual download is running: $url"); continue }
-        # 2 = skipped because a manual pull of the same playlist is running; not a failure.
-        if ($code -ne 0 -and $code -ne 2) { $status += "  (some songs failed; see update.log on the PC)" }
+        if ($status.StartsWith('Error: ')) { $report.Add("Failed: $url  (see update.log on the PC)"); continue }
+        if ($code -ne 0) { $status += "  (some songs failed; see update.log on the PC)" }
         $report.Add($status)
     }
     if ($urls.Count -eq 0) { $report.Add("playlists.txt has no links yet.") }

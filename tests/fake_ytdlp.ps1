@@ -4,7 +4,7 @@
 #   download: -a <batch> -P <root> -o <template> --autonumber-start <n> --download-archive <file> ...
 # The playlist comes from $env:FAKE_YTDLP_FIXTURE: "id<TAB>folder<TAB>title[<TAB>list id]" per
 # line; an entry with a list id is only listed for URLs with that list=.
-# A listing of a list id in $env:FAKE_YTDLP_THROW throws, like an unexpected crash.
+# A listing of a list id in $env:FAKE_YTDLP_THROW throws a .NET exception, like an unexpected crash.
 # IDs in $env:FAKE_YTDLP_UNAVAILABLE fail like a removed video (no number used).
 # IDs in $env:FAKE_YTDLP_BREAK fail mid-download: a number is used and a .part file is left.
 # Every call is appended to $env:FAKE_YTDLP_LOG.
@@ -23,7 +23,10 @@ $broken = @("$env:FAKE_YTDLP_BREAK" -split ',' | Where-Object { $_ })
 
 if ($args -contains '--flat-playlist') {
     $listId = if ($args[0] -match '[?&]list=([\w-]+)') { $Matches[1] } else { '' }
-    if ($listId -and ("$env:FAKE_YTDLP_THROW" -split ',') -contains $listId) { throw "fake crash listing $listId" }
+    if ($listId -and ("$env:FAKE_YTDLP_THROW" -split ',') -contains $listId) {
+        # A .NET method exception, the kind Windows PowerShell 5.1 can turn into exit 0.
+        [void][IO.File]::ReadAllText((Join-Path ([IO.Path]::GetTempPath()) "fake-crash-$listId-missing.txt"))
+    }
     $i = [array]::IndexOf($args, '--print-to-file')
     $out = $args[$i + 2]
     $text = ($fixture | Where-Object { -not $_.List -or $_.List -eq $listId } |
