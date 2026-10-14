@@ -110,7 +110,7 @@ if "%choice%"=="1" (
     if errorlevel 2 (
         echo Skipped: another run is already fetching this playlist into the same folder.
     ) else if errorlevel 1 (
-        echo Finished with errors: some videos were unavailable, or the download was cancelled.
+        echo Finished with errors: see the messages above (unavailable videos, a link that could not be listed, or an error^).
     ) else (
         echo Download complete!
     )

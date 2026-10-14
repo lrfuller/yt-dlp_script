@@ -222,6 +222,7 @@ Set-Fixture 'Boom' @('z1|Never')
 $env:FAKE_YTDLP_THROW = 'PLtest123'   # an unexpected exception while listing
 try { $r = Download $root $Url $list } catch { $r = [pscustomobject]@{ Code = 'threw'; Output = "$_" } }
 Check 'unexpected error: reported and exit code 1' (($r.Code -eq 1) -and ($r.Output -match '^Error: |\nError: ')) "code=$($r.Code) $($r.Output)"
+Check 'unexpected error: says where it happened' ($r.Output -match 'fake_ytdlp\.ps1:\d+') $r.Output
 # The bat's path: a separate powershell -File, where an uncaught exception can exit 0.
 # Continue: under Stop, PowerShell 5.1 turns the child's stderr into a terminating error.
 $ErrorActionPreference = 'Continue'

@@ -56,6 +56,7 @@ param(
 # The playlist lock is still released: exit runs the finally blocks below.
 trap {
     Write-Host "Error: $_"
+    Write-Host $_.InvocationInfo.PositionMessage   # where it happened, for update.log
     exit 1
 }
 
