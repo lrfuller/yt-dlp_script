@@ -25,8 +25,9 @@ stays in the .m3u. The only files removed are yt-dlp's partial-download files
 
 Only one run per playlist and folder at a time; a second one is skipped.
 
-Exit codes: 0 done, 1 some videos failed or the playlist couldn't be listed,
-2 skipped because another run of this playlist is in progress.
+Exit codes: 0 done, 1 some videos failed, the playlist couldn't be listed, or
+an unexpected error (printed as "Error: ..."), 2 skipped because another run
+of this playlist is in progress.
 
 If the -List file exists, the playlist's link is added to it after the
 download, so playlists downloaded by hand are kept up to date by
@@ -49,6 +50,14 @@ param(
 )
 
 . (Join-Path $PSScriptRoot 'common.ps1')
+
+# Any unexpected error: say so and exit 1. Without this, Windows PowerShell can
+# exit 0 after an exception, and the bat would print "Download complete!".
+# The playlist lock is still released: exit runs the finally blocks below.
+trap {
+    Write-Host "Error: $_"
+    exit 1
+}
 
 $Common = @(
     '--cookies-from-browser', $Browser,

@@ -217,6 +217,24 @@ Check 'first pull where every song fails: reports 0 of 2' ($r.Output -match "Dow
 Check 'first pull where every song fails: link still added to the list' (Select-String -LiteralPath $list -SimpleMatch 'list=PLtest123' -Quiet)
 Remove-Item -Recurse -Force $sb
 
+$sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'none.txt'
+Set-Fixture 'Boom' @('z1|Never')
+$env:FAKE_YTDLP_THROW = 'PLtest123'   # an unexpected exception while listing
+try { $r = Download $root $Url $list } catch { $r = [pscustomobject]@{ Code = 'threw'; Output = "$_" } }
+Check 'unexpected error: reported and exit code 1' (($r.Code -eq 1) -and ($r.Output -match '^Error: |\nError: ')) "code=$($r.Code) $($r.Output)"
+# The bat's path: a separate powershell -File, where an uncaught exception can exit 0.
+# Continue: under Stop, PowerShell 5.1 turns the child's stderr into a terminating error.
+$ErrorActionPreference = 'Continue'
+$out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Repo 'download_playlist.ps1') -Url $Url -Root $root -List $list -YtDlp $Fake 2>&1 | ForEach-Object { "$_" }
+$fileCode = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+Check 'unexpected error under powershell -File exits 1, so the bat does not say complete' ($fileCode -eq 1) "code=$fileCode $($out -join ' ')"
+$lockName = "yt-dlp-script-playlist-$(Get-RootKey $root)-PLtest123"
+$probe = Start-Job -ArgumentList $lockName { param($name); $m = New-Object System.Threading.Mutex($false, $name); try { $m.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { 'abandoned' } }
+$free = Receive-Job $probe -Wait; Remove-Job $probe -Force
+Check 'unexpected error still releases the playlist lock' ($free -eq $true) "probe got: $free"
+Remove-Item -Recurse -Force $sb
+
 # --------------------------------------------------------------------------
 Write-Host "update_all.ps1"
 $sb = New-Sandbox; $root = Join-Path $sb 'music'; $list = Join-Path $sb 'sync\playlists.txt'
